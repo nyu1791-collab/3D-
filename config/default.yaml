@@ -1,0 +1,28 @@
+gemini_route: aistudio
+cloud_client: vertex
+gemini_model: gemini-3.8-flash
+project: project-fdadb4dd-cb77-4270-9cd
+location: us-central1
+image_backend: gemini
+image_model: gemini-2.5-flash-image
+# Imagen is an explicit alternative; retired models are not silently replaced.
+tts_voice: ja-JP-Neural2-C
+tts_rate: 1.15
+language: ja-JP
+target_seconds: 30
+scene_goal: 5
+width: 720
+height: 1280
+fps: 30
+workers: 2
+caption_color: '#FFFFFF'
+label_color: '#FFE568'
+font_family: Noto Sans CJK JP
+drafts_dir: ""
+font: ""
+caption_size: 8
+caption_y: -0.76
+label_size: 7
+label_x: 0
+label_y: -0.55
+hook_size: 10

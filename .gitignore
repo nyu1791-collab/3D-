@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+data/
+output/
+outputs/
+*.sqlite3*
+*.log
+*.wav
+*.mp3
+*.mp4
+*.zip
+config/local.yaml

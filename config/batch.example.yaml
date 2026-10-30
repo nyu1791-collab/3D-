@@ -1,0 +1,8 @@
+# Generating images and speech can incur Cloud charges. Use mode: plan for scripts only.
+jobs:
+  - topic: 雨水が地下水になるまで
+    output: ~/.3d-explainer/water
+    mode: plan
+  - topic: 家の断熱材が熱の移動を抑える仕組み
+    output: ~/.3d-explainer/insulation
+    mode: plan
