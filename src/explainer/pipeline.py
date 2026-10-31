@@ -115,8 +115,11 @@ def build_outputs(plan,assets,output,cfg,mode):
     assets=Path(assets).expanduser().resolve()
     present=[(p.name,p.stat().st_size,p.stat().st_mtime_ns) for p in sorted(assets.glob('scene-*')) if p.is_file()]
     visual_keys={'width','height','fps','font','font_family','caption_color','caption_size','caption_y',
-                 'label_color','label_size','label_x','label_y','hook_size','drafts_dir'}
-    signature=key({'plan':plan,'files':present,'settings':{k:v for k,v in cfg.items() if k in visual_keys},'mode':mode})[:20]
+                 'label_color','label_size','label_x','label_y','hook_size','drafts_dir',
+                 'quality','encoder','bgm','bgm_volume'}
+    from .render import RECIPE
+    # RECIPE changes whenever the encode recipe does, so old scene clips are never mixed in.
+    signature=key({'plan':plan,'files':present,'settings':{k:v for k,v in cfg.items() if k in visual_keys},'mode':mode,'recipe':RECIPE})[:20]
     folder=output/'builds'/signature
     folder.mkdir(parents=True,exist_ok=True)
     prior=folder/'result.json'

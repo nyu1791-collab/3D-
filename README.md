@@ -124,7 +124,7 @@ Cloud側で使うAPI・請求先・権限の準備は [Googleの接続と料金]
 
 ## 書き出し品質
 
-MP4は `src/explainer/ffmpeg_recipes.py` で書き出します。静止画は4倍に拡大してから動かすので、Ken Burns がガタつきません。ナレーションは -14 LUFS にそろえ、BT.709 タグと faststart を付けます。`config/default.yaml` の `quality`（draft / standard / high）と `encoder`（libx264 / h264_nvenc）で速度と画質を選べます。
+MP4は `src/explainer/ffmpeg_recipes.py` で書き出します。静止画は4倍に拡大してから動かすので、Ken Burns がガタつきません。ナレーションは -14 LUFS にそろえ、BT.709 タグと faststart を付けます。`config/default.yaml` の `quality`（draft / standard / high）と `encoder`（libx264 / h264_nvenc）で速度と画質を選べます。`bgm` にファイルを指定すると、ナレーション中は自動で音量が下がるBGMを重ねます。代表的な1枚を `thumbnail.jpg` に保存します。
 
 ## 関連リポジトリ
 

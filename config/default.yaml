@@ -16,6 +16,8 @@ height: 1280
 fps: 30
 quality: standard      # draft(最速・2倍オーバーサンプル) / standard / high
 encoder: libx264       # libx264 / h264_nvenc
+bgm: ''                # BGMファイル。空なら無し。ナレーション中は自動で下がる
+bgm_volume: 0.18
 workers: 2
 caption_color: '#FFFFFF'
 label_color: '#FFE568'

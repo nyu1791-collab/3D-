@@ -5,6 +5,9 @@ import pysubs2
 from . import ffmpeg_recipes as fr
 from .builder import scene_timeline
 
+# Bump when the encode recipe changes; it is part of the build cache key.
+RECIPE = 2
+
 
 def _text(value):
     return str(value).replace('\\','＼').replace('{','（').replace('}','）').replace('\n',r'\N')
@@ -92,6 +95,15 @@ def render(plan,assets,output,settings):
     temporary=output/'video.next.mp4'
     subprocess.run(['ffmpeg','-nostdin','-v','error','-y','-f','concat','-safe','0','-i','concat.txt',
                     '-c','copy','-movflags','+faststart',str(temporary)],cwd=folder,check=True)
+    if settings.get('bgm'):
+        # Ducked music bed under the narration; video is stream-copied.
+        music=output/'video.bgm.mp4'
+        fr.add_music(temporary,Path(settings['bgm']).expanduser(),music,float(settings.get('bgm_volume',0.18)))
+        music.replace(temporary)
     temporary.replace(output/'video.mp4')
+    try:
+        fr.thumbnail(output/'video.mp4',output/'thumbnail.jpg')
+    except (OSError,subprocess.CalledProcessError):
+        pass  # Optional; the finished video stands without it.
     captions.save(str(output/'captions.srt'))
     return {'video':str(output/'video.mp4'),'scenes':len(rows),'duration':sum(r['duration'] for r in rows),'omitted':omitted}
