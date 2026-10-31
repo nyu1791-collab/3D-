@@ -31,6 +31,8 @@ DEFAULTS = {
     "caption_outline": 3,
     "caption_y": -0.815,
     "emphasis_color": "#FFE14D",
+    "theme": "blackboard",  # blackboard / whiteboard / gradient
+    "background": "",  # an image file used as the background instead (cover-fit)
     "privacy": "public",
     "category": "28",  # 28 = 科学と技術
     "portraits": "assets/zunda",
@@ -54,19 +56,21 @@ def silence(path, seconds):
 
 
 def _still(layers, seconds):
-    """Keep the previous visual on screen without animating it again."""
-    if not layers:
-        return []
-    last = dict(layers[-1])
-    if last.get("motion") == "pan":
-        return []  # a scrolled page has no single resting frame; the base shows instead
+    """Keep the previous visual on screen without animating it again
+    (its final step, plus decorations such as tape)."""
+    main = [layer for layer in layers if not layer.get("decor")]
+    if not main or main[-1].get("motion") == "pan":
+        return []  # a scrolled page has no single resting frame; the board shows instead
+    last = dict(main[-1])
     if last.get("motion") in ("zoom", "focus"):
         last["zoom"] = 1.08 if last["motion"] == "zoom" else 1.35
         last["motion"] = "hold"  # stay zoomed where the previous line ended
     else:
         last["motion"] = "still"
-    last.update(start=0, end=seconds)
-    return [last]
+    kept = [last] + [dict(layer) for layer in layers if layer.get("decor")]
+    for layer in kept:
+        layer.update(start=0, end=seconds)
+    return kept
 
 
 def layers_for(line, items, area, folder, name, seconds, previous):
@@ -217,7 +221,7 @@ def run(cfg, output, *, publish=True, force=False, env=os.environ, log=print, da
     voicevox.wait_ready(z["voicevox_url"])
     portraits = Path(z["portraits"]) if z["portraits"] else None
     size = CANVAS  # the layout (panel, characters, caption band) is designed for 1080p
-    area = visuals.panel(size)
+    area = visuals.panel(size, theme=z["theme"])
     bases, scenes, timeline = {}, [], []
     shown, previous_layers, number = set(), [], 0
 
@@ -228,6 +232,7 @@ def run(cfg, output, *, publish=True, force=False, env=os.environ, log=print, da
                 output / f"base-{len(bases):03d}.png", title=episode["title"], shot=None,
                 source=collect.domain(items[source]["url"]) if source >= 0 else None,
                 speaker=speaker, portraits=portraits, size=size, emotion=emotion,
+                theme=z["theme"], background_image=z["background"] or None,
             )
         return bases[key]
 
@@ -237,7 +242,7 @@ def run(cfg, output, *, publish=True, force=False, env=os.environ, log=print, da
             shown.add(source)
             number += 1
             card = visuals.chapter_card(len(shown), items[source]["title"], items[source]["source"], size,
-                                        layers_dir, f"chapter-{number:03d}")
+                                        layers_dir, f"chapter-{number:03d}", z["theme"], z["background"] or None)
             shutil.copyfile(card, assets / f"scene-{number:03d}.png")
             silence(assets / f"scene-{number:03d}.wav", 1.6)
             scenes.append({"scene_number": number, "narration": "", "camera_motion": "none"})

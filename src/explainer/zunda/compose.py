@@ -103,15 +103,42 @@ def portrait(speaker, portraits, height, emotion=None):
     return _badge(NAMES[speaker], COLORS[speaker], height)
 
 
-def frame(path, *, title, shot, source, speaker, portraits=None, size=(1920, 1080), band=170, emotion=None):
+@lru_cache(maxsize=8)
+def _background(size, theme, image, band):
+    from .themes import background
+
+    return background(size, theme, image, band).convert("RGBA")
+
+
+def _title(canvas, title, theme, background_image=None):
+    """Title bar: a dark strip (gradient/photo) or written on the board (chalk/marker)."""
+    from .themes import chalkify, palette
+
+    w = canvas.width
+    face = font(46, bold=True)
+    if theme in ("blackboard", "whiteboard") and not background_image:
+        ink = palette(theme)["title_ink"]
+        layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(layer)
+        text = _wrap(draw, title, face, w - 140, 1)[0]
+        draw.text((64, 36), text, font=face, fill=ink + (255,))
+        underline = palette(theme)["accent"]
+        draw.line([(62, 104), (64 + draw.textlength(text, font=face), 102)], fill=underline + (255,), width=5)
+        canvas.alpha_composite(chalkify(layer) if theme == "blackboard" else layer)
+        return
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle([0, 0, w, 96], fill=(10, 18, 28, 235))
+    draw.rectangle([0, 92, w, 98], fill=COLORS["zundamon"] + (255,))
+    draw.text((48, 20), _wrap(draw, title, face, w - 96, 1)[0], font=face, fill=(255, 255, 255, 255))
+
+
+def frame(path, *, title, shot, source, speaker, portraits=None, size=(1920, 1080), band=170, emotion=None,
+          theme="gradient", background_image=None):
     """One still for one speaker over one quoted page."""
     w, h = size
-    canvas = _gradient(size).convert("RGBA")
+    canvas = _background(tuple(size), theme, str(background_image or ""), band).copy()
+    _title(canvas, title, theme, background_image)
     draw = ImageDraw.Draw(canvas)
-    draw.rectangle([0, 0, w, 96], fill=(10, 18, 28, 255))
-    draw.rectangle([0, 92, w, 98], fill=COLORS["zundamon"] + (255,))
-    title_face = font(46, bold=True)
-    draw.text((48, 20), _wrap(draw, title, title_face, w - 96, 1)[0], font=title_face, fill=(255, 255, 255, 255))
 
     panel = (round(w * 0.59), h - 96 - band - 110)  # same as visuals.panel
     if shot and Path(shot).is_file():
