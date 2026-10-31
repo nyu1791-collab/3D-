@@ -2,6 +2,7 @@
 from pathlib import Path
 import subprocess
 import pysubs2
+from . import ffmpeg_recipes as fr
 from .builder import scene_timeline
 
 
@@ -75,23 +76,16 @@ def render(plan,assets,output,settings):
         name=f'scene-{index:03d}'
         subs.save(str(folder/(name+'.ass')))
         frames=max(1,round(duration*fps))
-        motion=scene.get('camera_motion','zoom_in')
-        zoom='1'
-        y='ih/2-ih/zoom/2'
-        if motion=='zoom_in':
-            zoom=f'1+0.12*on/{frames}'
-        elif motion=='zoom_out':
-            zoom=f'max(1.12-0.12*on/{frames},1)'
-        elif motion=='pan_down':
-            zoom='1.12'
-            y=f'(ih-ih/zoom)*on/{frames}'
-        vf=f"scale={width*2}:{height*2}:force_original_aspect_ratio=increase,crop={width*2}:{height*2},zoompan=z='{zoom}':x='iw/2-iw/zoom/2':y='{y}':d={frames}:s={width}x{height}:fps={fps},ass={name}.ass,format=yuv420p"
+        quality=settings.get('quality','standard')
+        motion=fr.ken_burns(width,height,fps,frames,scene.get('camera_motion','zoom_in'),
+                            oversample=2 if quality=='draft' else 4)
+        vf=f"{motion},ass={name}.ass,format=yuv420p"
         clip=folder/(name+'.mp4')
         if not clip.is_file():
             with (folder/'render.log').open('ab') as log:
                 subprocess.run(['ffmpeg','-nostdin','-v','error','-y','-loop','1','-i',row['image'],
-                    '-i',row['audio'],'-t',str(duration),'-vf',vf,'-c:v','libx264','-preset','veryfast','-crf','23',
-                    '-c:a','aac','-b:a','128k','-movflags','+faststart',name+'.next.mp4'],cwd=folder,stdout=log,stderr=subprocess.STDOUT,check=True)
+                    '-i',row['audio'],'-t',str(duration),'-vf',vf,'-af',fr.voice_chain(),
+                    *fr.delivery_args(quality,settings.get('encoder','libx264')),name+'.next.mp4'],cwd=folder,stdout=log,stderr=subprocess.STDOUT,check=True)
             (folder/(name+'.next.mp4')).replace(clip)
         clips.append(clip.name)
     (folder/'concat.txt').write_text('\n'.join("file '"+name+"'" for name in clips),encoding='utf-8')

@@ -122,6 +122,10 @@ Cloud側で使うAPI・請求先・権限の準備は [Googleの接続と料金]
 
 自作素材でMP4とCapCutドラフトを出力しました。Googleの実生成、無料枠・クレジット適用、Windows版CapCutでの表示は未実施です。
 
+## 書き出し品質
+
+MP4は `src/explainer/ffmpeg_recipes.py` で書き出します。静止画は4倍に拡大してから動かすので、Ken Burns がガタつきません。ナレーションは -14 LUFS にそろえ、BT.709 タグと faststart を付けます。`config/default.yaml` の `quality`（draft / standard / high）と `encoder`（libx264 / h264_nvenc）で速度と画質を選べます。
+
 ## 関連リポジトリ
 
 制作パイプライン全体の構成と各リポジトリの役割は [ClipForge の README](https://github.com/nyu1791-collab/ClipForge#関連リポジトリ) を参照してください。
