@@ -14,3 +14,12 @@ outputs/
 *.mp4
 *.zip
 config/local.yaml
+
+# PC-local optional automation state
+.venv-research/
+workstation/local.json
+workstation/*.local.json
+
+.ruff_cache/
+
+.pytest_cache/
