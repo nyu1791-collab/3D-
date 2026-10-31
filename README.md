@@ -121,3 +121,7 @@ Cloud側で使うAPI・請求先・権限の準備は [Googleの接続と料金]
 構成は [設計](docs/DESIGN.md)、Google接続は [接続と料金](docs/GOOGLE.md)、公開リポジトリから取り入れた範囲は [参考元](docs/SOURCES.md) にあります。
 
 自作素材でMP4とCapCutドラフトを出力しました。Googleの実生成、無料枠・クレジット適用、Windows版CapCutでの表示は未実施です。
+
+## 関連リポジトリ
+
+制作パイプライン全体の構成と各リポジトリの役割は [ClipForge の README](https://github.com/nyu1791-collab/ClipForge#関連リポジトリ) を参照してください。
