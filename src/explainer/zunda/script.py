@@ -7,6 +7,7 @@ explains, so the matching page is on screen while it is spoken.
 import json
 
 SPEAKERS = ("zundamon", "metan")
+MAX_LINES = 80
 RULES = """あなたはYouTubeの解説動画の構成作家です。ずんだもんと四国めたんの掛け合いで、
 渡された記事だけを根拠にニュースを分かりやすく解説する台本を書きます。
 
@@ -86,6 +87,7 @@ def validate(value, item_count):
         except (TypeError, ValueError):
             source = -1
         lines.append({"speaker": speaker, "text": text[:90], "source": source if 0 <= source < item_count else -1})
+    lines = lines[:MAX_LINES]  # a run-away script must not become an hour-long video
     if len(lines) < 6:
         raise ValueError(f"台本の行が少なすぎます（{len(lines)}行）")
     title = " ".join(str(value.get("title", "")).split())[:70] or "今日のニュース解説"

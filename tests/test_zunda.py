@@ -190,3 +190,21 @@ class Pipeline(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Chapters(unittest.TestCase):
+    ITEMS = [{"title": "記事A"}, {"title": "記事B"}]
+
+    def lines(self, sources):
+        return [{"speaker": "zundamon", "text": "x", "source": s} for s in sources]
+
+    def test_opening_articles_and_closing(self):
+        result = pipeline.chapters(self.lines([-1, 0, 0, 1, 1, -1]), [12, 10, 10, 10, 10, 12], self.ITEMS)
+        self.assertEqual(result, ["0:00 オープニング", "0:12 記事A", "0:32 記事B", "0:52 まとめ"])
+
+    def test_too_short_chapters_are_left_out(self):
+        self.assertEqual(pipeline.chapters(self.lines([-1, 0, 1]), [3, 3, 3], self.ITEMS), [])
+
+    def test_line_cap(self):
+        raw = {"lines": [{"speaker": "metan", "text": "説明ですわ", "source": -1}] * 200}
+        self.assertEqual(len(script.validate(raw, 0)["lines"]), script.MAX_LINES)

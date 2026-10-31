@@ -24,7 +24,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 鍵が揃うまでは休止（VOICEVOX の起動もしない）。毎日失敗メールが届かないようにする。
+  ready:
+    runs-on: ubuntu-24.04
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - id: check
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          ZUNDA_GITHUB_TOKEN: ${{ secrets.ZUNDA_GITHUB_TOKEN }}
+          PUBLISH: ${{ github.event_name == 'schedule' || inputs.publish }}
+        run: |
+          need=(GEMINI_API_KEY)
+          [ "$PUBLISH" = true ] && need+=(YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN ZUNDA_GITHUB_TOKEN)
+          missing=()
+          for name in "${need[@]}"; do [ -n "${!name}" ] || missing+=("$name"); done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::notice::ずんだもん解説は未設定のため休止中です（未登録: ${missing[*]}）"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
   episode:
+    needs: ready
+    if: needs.ready.outputs.ok == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     services:

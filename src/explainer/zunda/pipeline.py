@@ -64,8 +64,38 @@ def pick(items, count):
     return chosen
 
 
-def describe(episode, items, z):
-    lines = [episode["description"], "", "出典:"]
+def stamp(seconds):
+    seconds = int(seconds)
+    return f"{seconds // 3600}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}" if seconds >= 3600 else f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def chapters(lines, durations, items):
+    """YouTube chapters: opening, one per article, closing. Returned only when they
+    meet YouTube's rules (start at 0:00, at least 3, each at least 10 s)."""
+    marks, position, seen, current = [(0.0, "オープニング")], 0.0, set(), None
+    for line, duration in zip(lines, durations):
+        source = line["source"]
+        if source >= 0 and source not in seen:
+            seen.add(source)
+            current = source
+            marks.append((position, items[source]["title"][:40]))
+        elif source < 0 and current is not None and marks[-1][1] != "まとめ" and len(seen) == len(items):
+            marks.append((position, "まとめ"))
+        position += duration
+    if len(marks) > 1 and marks[1][0] < 10:
+        marks.pop(0)  # no real opening: the first article starts at 0:00
+        marks[0] = (0.0, marks[0][1])
+    ends = [m[0] for m in marks[1:]] + [position]
+    if len(marks) < 3 or any(end - start < 10 for (start, _), end in zip(marks, ends)):
+        return []
+    return [f"{stamp(start)} {title}" for start, title in marks]
+
+
+def describe(episode, items, z, chapter_lines=()):
+    lines = [episode["description"], ""]
+    if chapter_lines:
+        lines += ["目次:", *chapter_lines, ""]
+    lines += ["出典:"]
     lines += [f"・{i['title']}（{i['source']}）\n  {i['url']}" for i in items]
     credits = [voicevox.SPEAKERS["zundamon"]["credit"], voicevox.SPEAKERS["metan"]["credit"]]
     if z.get("portrait_credit"):
@@ -80,6 +110,7 @@ def today(z, clock=time.time):
 
 
 def run(cfg, output, *, publish=True, force=False, env=os.environ, log=print, data_dir=None, clock=time.time):
+    from ..builder import audio_seconds
     from ..render import render
 
     z = settings_for(cfg)
@@ -153,7 +184,8 @@ def run(cfg, output, *, publish=True, force=False, env=os.environ, log=print, da
     thumb = compose.thumbnail(
         output / "thumbnail-yt.jpg", text=episode["thumbnail_text"], shot=shots[items[0]["url"]], portraits=portraits
     )
-    description = describe(episode, items, z)
+    durations = [audio_seconds(assets / f"scene-{n:03d}.wav") for n in range(1, len(episode["lines"]) + 1)]
+    description = describe(episode, items, z, chapters(episode["lines"], durations, items))
     (output / "description.txt").write_text(description, encoding="utf-8")
     record = {"date": day, "title": episode["title"], "urls": [i["url"] for i in items], "video": str(video)}
     if not publish:
