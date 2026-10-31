@@ -6,7 +6,7 @@ from . import ffmpeg_recipes as fr
 from .builder import scene_timeline
 
 # Bump when the encode recipe changes; it is part of the build cache key.
-RECIPE = 2
+RECIPE = 3
 
 
 def _text(value):
@@ -54,13 +54,16 @@ def render(plan,assets,output,settings):
     for index,row in enumerate(rows):
         subs=pysubs2.SSAFile()
         subs.info.update(PlayResX=str(width),PlayResY=str(height),WrapStyle='0')
+        scene=row['scene']
+        # A scene may carry its own caption colour (e.g. one colour per speaker).
+        color=_color(scene.get('caption_color'),caption_color) if scene.get('caption_color') else caption_color
+        outline=float(settings.get('caption_outline',2))
         subs.styles['Default']=pysubs2.SSAStyle(fontname=font,fontsize=_size(settings.get('caption_size',8),height),
-             primarycolor=caption_color,bold=True,outline=2,shadow=0,alignment=5,marginl=40,marginr=40)
+             primarycolor=color,bold=True,outline=outline,shadow=0,alignment=5,marginl=40,marginr=40)
         subs.styles['Label']=pysubs2.SSAStyle(fontname=font,fontsize=_size(settings.get('label_size',7),height),
              primarycolor=label_color,bold=True,outline=2,shadow=0,alignment=5,marginl=40,marginr=40)
         subs.styles['Hook']=pysubs2.SSAStyle(fontname=font,fontsize=_size(settings.get('hook_size',10),height),
              primarycolor=label_color,bold=True,outline=2,shadow=0,alignment=5,marginl=40,marginr=40)
-        scene=row['scene']
         duration=row['duration']
         text=_text(scene.get('narration',''))
         subs.events.append(pysubs2.SSAEvent(start=0,end=round(duration*1000),
@@ -72,7 +75,7 @@ def render(plan,assets,output,settings):
                           scene.get('label_y',settings.get('label_y',-.55)),width,height)
             subs.events.append(pysubs2.SSAEvent(start=0,end=round(duration*1000),
                 text=rf'{{\an5\pos({x},{y})}}'+_text(label),style='Label'))
-        if index==0:
+        if index==0 and plan.get('show_hook',True):
             hook=plan.get('hook_text') or plan.get('title','')
             subs.events.append(pysubs2.SSAEvent(start=0,end=round(min(3,duration)*1000),
                 text=rf'{{\an5\pos({hook_x},{hook_y})}}'+_text(hook),style='Hook'))
@@ -80,8 +83,12 @@ def render(plan,assets,output,settings):
         subs.save(str(folder/(name+'.ass')))
         frames=max(1,round(duration*fps))
         quality=settings.get('quality','standard')
-        motion=fr.ken_burns(width,height,fps,frames,scene.get('camera_motion','zoom_in'),
-                            oversample=2 if quality=='draft' else 4)
+        if scene.get('camera_motion')=='none':
+            # Still frames that are already composed at canvas size: no zoompan needed.
+            motion=f'scale={width}:{height}:flags=lanczos,fps={fps}'
+        else:
+            motion=fr.ken_burns(width,height,fps,frames,scene.get('camera_motion','zoom_in'),
+                                oversample=2 if quality=='draft' else 4)
         vf=f"{motion},ass={name}.ass,format=yuv420p"
         clip=folder/(name+'.mp4')
         if not clip.is_file():

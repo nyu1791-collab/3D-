@@ -1,0 +1,85 @@
+name: zundamon
+
+# ずんだもん解説を毎日1本、情報収集から YouTube / X まで自動で作る（自分のチャンネル専用）。
+# 鍵と状態は Secrets / Variables にあり、このリポジトリには値を書かない。手順: README「ずんだもん解説の自動投稿」。
+on:
+  schedule:
+    - cron: "13 22 * * *"   # 毎日 07:13 JST
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 投稿する（オフなら書き出しまで）
+        type: boolean
+        default: true
+      force:
+        description: 今日すでに投稿済みでも作る
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zundamon
+  cancel-in-progress: false
+
+jobs:
+  episode:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      voicevox:
+        image: voicevox/voicevox_engine:cpu-latest
+        ports:
+          - 50021:50021
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: FFmpeg and Japanese fonts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk fontconfig
+      - name: Python packages and Chromium
+        run: |
+          python -m pip install -q -r requirements-google.txt -r requirements-zunda.txt
+          python -m playwright install --with-deps chromium
+      - name: Make the episode
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+          ZUNDA_STATE_BACKEND: variable
+          ZUNDA_GITHUB_TOKEN: ${{ secrets.ZUNDA_GITHUB_TOKEN }}
+          ZUNDA_CONFIG: ${{ secrets.ZUNDA_CONFIG }}
+          EXPLAINER_DATA_DIR: ${{ runner.temp }}/explainer
+          PUBLISH: ${{ github.event_name == 'schedule' || inputs.publish }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          args=(zunda --output "$RUNNER_TEMP/episode")
+          [ "$PUBLISH" = true ] || args+=(--no-publish)
+          [ "$FORCE" = true ] && args+=(--force)
+          config=()
+          if [ -n "$ZUNDA_CONFIG" ]; then
+            printf '%s\n' "$ZUNDA_CONFIG" > "$RUNNER_TEMP/zunda.yaml"
+            config=(--config "$RUNNER_TEMP/zunda.yaml")
+          fi
+          python main.py "${config[@]}" "${args[@]}"
+      - name: Keep the files when something failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zundamon-debug
+          path: |
+            ${{ runner.temp }}/episode/*.json
+            ${{ runner.temp }}/episode/description.txt
+          retention-days: 3
+          if-no-files-found: ignore

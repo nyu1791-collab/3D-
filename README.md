@@ -126,6 +126,42 @@ Cloud側で使うAPI・請求先・権限の準備は [Googleの接続と料金]
 
 MP4は `src/explainer/ffmpeg_recipes.py` で書き出します。静止画は4倍に拡大してから動かすので、Ken Burns がガタつきません。ナレーションは -14 LUFS にそろえ、BT.709 タグと faststart を付けます。`config/default.yaml` の `quality`（draft / standard / high）と `encoder`（libx264 / h264_nvenc）で速度と画質を選べます。`bgm` にファイルを指定すると、ナレーション中は自動で音量が下がるBGMを重ねます。代表的な1枚を `thumbnail.jpg` に保存します。
 
+## ずんだもん解説の自動投稿（完全自動）
+
+毎朝、テックニュースを集めて、ずんだもんと四国めたんの掛け合いで解説する動画を1本作り、YouTube と X に投稿します。自分のチャンネルだけに関わる処理なので、承認なしで最後まで進みます。
+
+```
+情報収集（ITmedia・GIGAZINE・Publickey の RSS、Hacker News）→ 記事本文の取得
+→ 台本（Gemini。記事にないことは言わない）→ 記事ページのスクリーンショット（Playwright）
+→ 音声（VOICEVOX）→ 画面の合成（引用ページ＋出典＋キャラクター＋字幕帯）
+→ 1920×1080 で書き出し → サムネイル → YouTube 公開 → X 投稿
+```
+
+- 手元で試す: VOICEVOX を起動してから `python main.py zunda --output out/zunda --no-publish`（書き出しまで）。
+- 毎日の実行: `.github/workflows/zundamon.yml`（07:13 JST）。手動実行では「投稿しない」も選べます。
+- 同じ日に2回は投稿しません。使った記事は45日間は選びません。新しい話題が無い日は投稿しません。
+- 失敗したとき: ページが撮れなければ見出しカードで代わりにします。台本・音声・書き出し・アップロードが失敗した日は何も投稿せず、記事は翌日以降にまた候補になります。
+
+### 登録（初回だけ）
+
+| Secret | 内容 |
+|---|---|
+| `GEMINI_API_KEY` | Google AI Studio の API キー（台本） |
+| `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` | Google Cloud の OAuth クライアント（デスクトップ アプリ）。ClipForge と同じものでよい |
+| `YOUTUBE_REFRESH_TOKEN` | 手元で `python main.py zunda-auth --client-id … --client-secret …` を実行し、**ずんだもん用チャンネル**で許可して得たもの |
+| `X_API_KEY` / `X_API_SECRET` / `X_ACCESS_TOKEN` / `X_ACCESS_SECRET` | ずんだもん用 X アカウントのアプリキー（Read and write） |
+| `ZUNDA_GITHUB_TOKEN` | このリポジトリの **Variables: Read and write** を持つ fine-grained token（使った記事の記録） |
+| `ZUNDA_CONFIG`（任意） | 設定の上書き。例: `zunda: {keywords: [AI, 半導体], topics: 3, privacy: public}` |
+
+`gh secret set 名前 --repo nyu1791-collab/3D-` で登録します（値は画面に出しません）。YouTube API の有効化と OAuth 同意画面の設定は ClipForge の `docs/AUTOPILOT.md` と同じです。同意画面は「本番環境」にしてください（「テスト」のままだと7日で失効します）。
+
+### 守っていること・注意
+
+- **クレジット**: 説明欄に「VOICEVOX:ずんだもん / VOICEVOX:四国めたん」を必ず入れます（利用規約）。立ち絵を使うなら `assets/zunda/zundamon.png`・`metan.png`（透過PNG）を置き、作者の規約に従って `zunda.portrait_credit` に表記を書いてください。無い場合は色付きの名前バッジを表示します。
+- **出典と引用**: スクリーンショットには必ず「出典: ドメイン」を表示し、説明欄に記事タイトルとURLを並べます。台本は記事の要点を自分の言葉で説明し、本文を長く読み上げません。主役は解説で、ページは引用として添えるだけです。
+- **YouTube API の制約**: Google の API 監査を通るまで、API でのアップロードは**強制的に非公開**になります。既定の割り当て（1日10,000ユニット）では、アップロードは1日およそ6本までです。カスタムサムネイルは確認済みチャンネルでのみ設定されます（失敗しても投稿は続けます）。
+- **X**: プランごとの投稿上限に注意してください。投稿できなかった日も、動画の公開はそのままです。
+
 ## 関連リポジトリ
 
 制作パイプライン全体の構成と各リポジトリの役割は [ClipForge の README](https://github.com/nyu1791-collab/ClipForge#関連リポジトリ) を参照してください。

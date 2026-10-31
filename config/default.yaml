@@ -30,3 +30,6 @@ label_size: 7
 label_x: 0
 label_y: -0.55
 hook_size: 10
+# ずんだもん解説（main.py zunda）。省略した項目は src/explainer/zunda/pipeline.py の DEFAULTS。
+# 例: zunda: {topics: 3, lines: 40, keywords: [AI, 半導体], privacy: public, portrait_credit: "立ち絵: ○○"}
+zunda: {}

@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import yaml
@@ -31,11 +32,28 @@ def main():
     batch=sub.add_parser('batch',help='複数テーマを個別に保存して制作')
     batch.add_argument('file',type=Path)
     batch.add_argument('--workers',type=int,default=1)
+    zunda=sub.add_parser('zunda',help='ずんだもん解説：情報収集→台本→音声→動画→YouTube/X（完全自動）')
+    zunda.add_argument('--output',required=True,type=Path)
+    zunda.add_argument('--no-publish',action='store_true',help='書き出しまで。投稿しない')
+    zunda.add_argument('--force',action='store_true',help='同じ日に投稿済みでも作る')
+    auth=sub.add_parser('zunda-auth',help='YouTube の refresh token を取得（初回だけ・手元のPCで）')
+    auth.add_argument('--client-id',default=os.environ.get('YOUTUBE_CLIENT_ID'))
+    auth.add_argument('--client-secret',default=os.environ.get('YOUTUBE_CLIENT_SECRET'))
+    auth.add_argument('--output',default='~/youtube-refresh-token.txt')
     args=parser.parse_args()
     cfg=pipeline.settings(args.config)
     try:
         if args.action=='generate':
             result=pipeline.generate(args.topic,args.output,cfg,args.mode,args.plan)
+        elif args.action=='zunda-auth':
+            from .zunda.auth import auth_youtube
+            if not (args.client_id and args.client_secret):
+                parser.exit(1,'--client-id と --client-secret（デスクトップアプリのOAuthクライアント）が必要です\n')
+            auth_youtube(args.client_id,args.client_secret,args.output)
+            return 0
+        elif args.action=='zunda':
+            from .zunda.pipeline import run
+            result=run(cfg,args.output,publish=not args.no_publish,force=args.force,data_dir=pipeline.home())
         elif args.action=='resume':
             result=pipeline.resume(args.output)
         elif args.action=='jobs':
