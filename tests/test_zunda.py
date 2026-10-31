@@ -79,11 +79,14 @@ class Script(unittest.TestCase):
             + [{"speaker": "metan", "text": "説明ですわ", "source": 0}] * 6
             + [{"speaker": "narrator", "text": "x", "source": 0}],
         }
-        result = script.validate(raw, 1)
-        self.assertEqual(result["lines"][0], {"speaker": "zundamon", "text": "こんにちは なのだ", "source": -1})
+        items = [{"title": "t", "source": "S", "text": "本文"}]
+        result = script.validate(raw, items, log=lambda *a: None)
+        first = result["lines"][0]
+        self.assertEqual((first["speaker"], first["text"], first["source"]), ("zundamon", "こんにちは なのだ", -1))
+        self.assertEqual(first["visual"], {"kind": "keep"})
         self.assertEqual(len(result["lines"]), 7)
         with self.assertRaises(ValueError):
-            script.validate({"lines": raw["lines"][:2]}, 1)
+            script.validate({"lines": raw["lines"][:2]}, items, log=lambda *a: None)
 
 
 class Compose(unittest.TestCase):
@@ -140,9 +143,12 @@ class Pipeline(unittest.TestCase):
             "thumbnail_text": "AIチップ",
             "tags": ["AI"],
             "lines": [
-                {"speaker": "zundamon", "text": "今日は二つのニュースなのだ", "source": -1},
-                {"speaker": "metan", "text": "まずはAIチップの話ですわ", "source": 0},
-                {"speaker": "zundamon", "text": "次は障害の話なのだ", "source": 1},
+                {"speaker": "zundamon", "text": "今日は【二つ】のニュースなのだ", "source": -1, "role": "intro",
+                 "emotion": "happy", "visual": {"kind": "points", "points": ["AIチップ", "障害"]}},
+                {"speaker": "metan", "text": "まずはAIチップの話ですわ", "source": 0, "role": "fact",
+                 "emotion": "normal", "visual": {"kind": "page"}},
+                {"speaker": "zundamon", "text": "次は障害の話なのだ", "source": 1, "role": "fact",
+                 "emotion": "normal", "visual": {"kind": "keep"}},
             ],
         }
 
@@ -169,7 +175,7 @@ class Pipeline(unittest.TestCase):
         ), mock.patch.object(pipeline.youtube, "set_thumbnail"), mock.patch.object(
             pipeline.x, "keys_from_env", return_value={}
         ), mock.patch.object(pipeline.x, "post", side_effect=lambda text, keys: posts.append(text) or "X1"):
-            cfg = {"quality": "draft", "zunda": {"width": 640, "height": 360, "portraits": ""}}
+            cfg = {"quality": "draft", "zunda": {"portraits": ""}}
             result = pipeline.run(cfg, Path(folder) / "out", data_dir=folder, clock=lambda: NOW, log=lambda *a: None)
             self.assertEqual(result["status"], "published")
             self.assertEqual(result["youtube"], "VID1")
@@ -178,7 +184,7 @@ class Pipeline(unittest.TestCase):
                 ["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", str(video)],
                 capture_output=True, text=True, check=True,
             ).stdout
-            self.assertIn("640,360", probe)
+            self.assertIn("1920,1080", probe)
             self.assertIn("VOICEVOX:ずんだもん", kwargs["description"])
             self.assertIn("https://news.example.jp/a", kwargs["description"])
             self.assertTrue(posts and posts[0].endswith("https://youtu.be/VID1"))
@@ -207,4 +213,86 @@ class Chapters(unittest.TestCase):
 
     def test_line_cap(self):
         raw = {"lines": [{"speaker": "metan", "text": "説明ですわ", "source": -1}] * 200}
-        self.assertEqual(len(script.validate(raw, 0)["lines"]), script.MAX_LINES)
+        self.assertEqual(len(script.validate(raw, [], log=lambda *a: None)["lines"]), script.MAX_LINES)
+
+
+class Grounding(unittest.TestCase):
+    ITEM = {
+        "title": "新型チップ発表", "source": "Example", "summary": "",
+        "text": "新しいチップは処理速度が従来の2.5倍になり、価格は3万9800円です。発売は来月。",
+        "meta": {"paragraphs": [{"text": "発売は来月の予定です。", "box": [0, 0, 100, 20]}], "images": [],
+                 "tables": [], "heading": [0, 0, 100, 40]},
+    }
+
+    def test_quotes_and_numbers_must_be_in_the_article(self):
+        ok = script.check_visual({"kind": "quote", "quote": "処理速度が従来の2.5倍"}, self.ITEM)
+        self.assertEqual(ok["kind"], "quote")
+        self.assertEqual(script.check_visual({"kind": "quote", "quote": "10倍速くなった"}, self.ITEM)["kind"], "page")
+        chart = {"kind": "chart", "items": [{"label": "速度", "value": 2.5}, {"label": "価格", "value": 39800}]}
+        self.assertEqual(script.check_visual(chart, self.ITEM)["kind"], "chart")
+        invented = {"kind": "chart", "items": [{"label": "速度", "value": 2.5}, {"label": "台数", "value": 100}]}
+        self.assertEqual(script.check_visual(invented, self.ITEM)["kind"], "page")
+
+    def test_references_must_exist(self):
+        self.assertEqual(script.check_visual({"kind": "paragraph", "index": 0}, self.ITEM)["kind"], "paragraph")
+        self.assertEqual(script.check_visual({"kind": "paragraph", "index": 7}, self.ITEM)["kind"], "page")
+        self.assertEqual(script.check_visual({"kind": "image", "index": 0}, self.ITEM)["kind"], "page")
+        self.assertEqual(script.check_visual({"kind": "nonsense"}, self.ITEM)["kind"], "keep")
+        self.assertEqual(script.spoken("今日は【生成AI】の話"), "今日は生成AIの話")
+
+    def test_formats_rotate(self):
+        self.assertEqual({script.format_for(d) for d in range(7)}, {"roundup", "deep", "qa"})
+
+
+class Visuals(unittest.TestCase):
+    def test_every_builder_makes_layers_inside_the_panel(self):
+        from explainer.zunda import visuals
+
+        with tempfile.TemporaryDirectory() as folder:
+            page = Path(folder) / "page.png"
+            Image.new("RGB", (1920, 4000), (240, 240, 240)).save(page)
+            meta = {"page": str(page), "scale": 1.5, "heading": [100, 300, 800, 60]}
+            area = visuals.panel((1920, 1080))
+            builders = [
+                visuals.page_top(meta, area, folder, "a", 3),
+                visuals.page_scroll(meta, area, folder, "b", 3),
+                visuals.article_crop(meta, [100, 1500, 900, 120], area, folder, "c", 3),
+                visuals.table_steps([["項目", "値"], ["速度", "2.5倍"], ["価格", "39800円"]], area, folder, "d", 3, "比較"),
+                visuals.chart_steps({"title": "価格", "unit": "円", "items": [{"label": "A", "value": 1}, {"label": "B", "value": 2}]}, area, folder, "e", 3),
+                visuals.points_steps(["一つ目", "二つ目"], area, folder, "f", 3),
+                visuals.quote_card("引用の文", "Example", area, folder, "g", 3),
+            ]
+            for layers in builders:
+                self.assertTrue(layers)
+                for layer in layers:
+                    self.assertGreaterEqual(layer["x"], area["x"] - 1)
+                    self.assertLessEqual(layer["x"] + layer["w"], area["x"] + area["w"] + 1)
+                    self.assertTrue(Path(layer["image"]).is_file())
+            focus = builders[2][0]["focus"]
+            self.assertTrue(0 <= focus[0] <= 1 and 0 <= focus[1] <= 1)
+            self.assertEqual([l["motion"] for l in builders[3]][:2], ["pop", "still"])
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg is not installed")
+    def test_layer_motions_render(self):
+        from explainer.render import layer_graph
+
+        with tempfile.TemporaryDirectory() as folder:
+            paths = []
+            for name, size in [("base", (320, 180)), ("a", (100, 60)), ("b", (100, 200))]:
+                Image.new("RGB", size, (120, 140, 160)).save(Path(folder) / f"{name}.png")
+                paths.append(str(Path(folder) / f"{name}.png"))
+            layers = [
+                {"image": paths[1], "x": 10, "y": 10, "w": 100, "h": 60, "motion": "focus", "focus": (0.2, 0.8), "start": 0, "end": 1},
+                {"image": paths[1], "x": 10, "y": 100, "w": 100, "h": 60, "motion": "hold", "zoom": 1.35, "start": 0, "end": 1},
+                {"image": paths[2], "x": 200, "y": 10, "w": 100, "h": 200, "visible_h": 80, "motion": "pan", "start": 0, "end": 1},
+                {"image": paths[1], "x": 200, "y": 100, "w": 100, "h": 60, "motion": "pop", "start": 0.3, "end": 1},
+            ]
+            graph, last = layer_graph(layers, 320, 180, 25, 1.0)
+            command = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-loop", "1", "-i", paths[0],
+                       "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+            for layer in layers:
+                command += ["-loop", "1", "-i", layer["image"]]
+            command += ["-filter_complex", graph + f";[{last}]format=yuv420p[v]", "-map", "[v]", "-map", "1:a",
+                        "-t", "1", "-c:v", "libx264", "-preset", "ultrafast", str(Path(folder) / "out.mp4")]
+            subprocess.run(command, check=True, capture_output=True)
+            self.assertGreater((Path(folder) / "out.mp4").stat().st_size, 0)

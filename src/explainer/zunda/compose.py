@@ -88,16 +88,22 @@ def _badge(name, color, height):
     return image
 
 
-def portrait(speaker, portraits, height):
-    path = Path(portraits) / f"{speaker}.png" if portraits else None
-    if path and path.is_file():
+def portrait(speaker, portraits, height, emotion=None):
+    """<speaker>_<emotion>.png if present, else <speaker>.png, else a name badge."""
+    path = None
+    if portraits:
+        for name in ([f"{speaker}_{emotion}.png"] if emotion else []) + [f"{speaker}.png"]:
+            if (Path(portraits) / name).is_file():
+                path = Path(portraits) / name
+                break
+    if path:
         art = Image.open(path).convert("RGBA")
         scale = height / art.height
         return art.resize((round(art.width * scale), height), Image.LANCZOS)
     return _badge(NAMES[speaker], COLORS[speaker], height)
 
 
-def frame(path, *, title, shot, source, speaker, portraits=None, size=(1920, 1080), band=170):
+def frame(path, *, title, shot, source, speaker, portraits=None, size=(1920, 1080), band=170, emotion=None):
     """One still for one speaker over one quoted page."""
     w, h = size
     canvas = _gradient(size).convert("RGBA")
@@ -107,7 +113,7 @@ def frame(path, *, title, shot, source, speaker, portraits=None, size=(1920, 108
     title_face = font(46, bold=True)
     draw.text((48, 20), _wrap(draw, title, title_face, w - 96, 1)[0], font=title_face, fill=(255, 255, 255, 255))
 
-    panel = (round(w * 0.66), h - 96 - band - 110)
+    panel = (round(w * 0.59), h - 96 - band - 110)  # same as visuals.panel
     if shot and Path(shot).is_file():
         page = _fit(Image.open(shot), panel)
         x, y = 56, 124
@@ -120,12 +126,20 @@ def frame(path, *, title, shot, source, speaker, portraits=None, size=(1920, 108
         label_face = font(30)
         draw.rounded_rectangle([x - 6, y + page.height + 18, x + 24 + draw.textlength("出典: " + source, font=label_face), y + page.height + 66], 10, fill=(0, 0, 0, 170))
         draw.text((x + 8, y + page.height + 22), "出典: " + source, font=label_face, fill=(235, 235, 235, 255))
+    elif source:
+        # Visuals are layered on later; the source label sits under the panel area.
+        label_face = font(30)
+        y = 124 + panel[1] + 18
+        draw.rounded_rectangle([50, y, 80 + draw.textlength("出典: " + source, font=label_face), y + 48], 10, fill=(0, 0, 0, 170))
+        draw.text((64, y + 4), "出典: " + source, font=label_face, fill=(235, 235, 235, 255))
 
     height = h - 96 - band - 20
     right = w - 20
     placed = {}
     for name in ("zundamon", "metan"):  # zundamon at the far right, metan beside her
-        art = portrait(name, portraits, round(height * (1.0 if name == speaker else 0.92)))
+        art = portrait(
+            name, portraits, round(height * (1.0 if name == speaker else 0.92)), emotion if name == speaker else None
+        )
         if name != speaker:
             alpha = art.getchannel("A")
             art = ImageEnhance.Brightness(art.convert("RGB")).enhance(0.5).convert("RGBA")

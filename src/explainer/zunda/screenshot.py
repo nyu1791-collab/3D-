@@ -28,8 +28,46 @@ HIDE_OVERLAYS = """
 CONSENT = ["同意", "同意する", "すべて許可", "OK", "Accept", "Accept all", "I agree", "Agree"]
 
 
+COLLECT = """
+() => {
+  const visible = (el) => {
+    const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
+    return r.width > 40 && r.height > 10 && s.visibility !== 'hidden' && s.display !== 'none';
+  };
+  const box = (el) => { const r = el.getBoundingClientRect(); return [r.left + scrollX, r.top + scrollY, r.width, r.height]; };
+  const h1 = [...document.querySelectorAll('h1')].find(visible);
+  const seen = new Set();
+  const paragraphs = [...document.querySelectorAll('article p, main p, p')]
+    .filter(visible)
+    .map((p) => ({ box: box(p), text: p.innerText.trim().replace(/\\s+/g, ' ') }))
+    .filter((p) => p.text.length >= 30 && !seen.has(p.text) && seen.add(p.text))
+    .slice(0, 15);
+  const images = [...document.images]
+    .filter((i) => visible(i) && i.naturalWidth >= 300 && i.getBoundingClientRect().width >= 250)
+    .map(box).slice(0, 4);
+  const tables = [...document.querySelectorAll('table')].filter(visible).slice(0, 2).map((t) => ({
+    box: box(t),
+    rows: [...t.rows].slice(0, 10).map((r) => [...r.cells].slice(0, 6).map((c) => c.innerText.trim().slice(0, 40))),
+  }));
+  return { heading: h1 ? box(h1) : null, heading_text: h1 ? h1.innerText.trim() : '', paragraphs, images, tables,
+           height: document.documentElement.scrollHeight };
+}
+"""
+SCROLL = """
+async () => {
+  for (let y = 0; y < Math.min(document.documentElement.scrollHeight, 6000); y += 700) {
+    window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 120));
+  }
+  window.scrollTo(0, 0);
+}
+"""
+SCALE = 1.5
+MAX_HEIGHT = 6000
+
+
 def capture_many(urls, folder, timeout_ms=25000, log=print):
-    """{url: png path or None}. One browser for all pages."""
+    """{url: metadata or None}. metadata: page (PNG of the top of the article, up to
+    6000 CSS px), scale, and boxes/text for the heading, paragraphs, images, tables."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     results = {url: None for url in urls}
@@ -48,7 +86,7 @@ def capture_many(urls, folder, timeout_ms=25000, log=print):
             return results
         context = browser.new_context(
             viewport={"width": 1280, "height": 800},
-            device_scale_factor=1.5,
+            device_scale_factor=SCALE,
             locale="ja-JP",
             user_agent=(
                 "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -57,7 +95,7 @@ def capture_many(urls, folder, timeout_ms=25000, log=print):
         )
         for index, url in enumerate(urls):
             page = context.new_page()
-            target = folder / f"shot-{index:02d}.png"
+            target = folder / f"page-{index:02d}.png"
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                 page.wait_for_timeout(1500)
@@ -69,9 +107,16 @@ def capture_many(urls, folder, timeout_ms=25000, log=print):
                             break
                         except PlaywrightError:
                             pass
+                page.evaluate(SCROLL)  # load lazy images
                 page.evaluate(HIDE_OVERLAYS)
-                page.screenshot(path=str(target), timeout=timeout_ms)
-                results[url] = target
+                meta = page.evaluate(COLLECT)
+                height = min(int(meta.get("height") or 800), MAX_HEIGHT)
+                page.screenshot(
+                    path=str(target), full_page=True, clip={"x": 0, "y": 0, "width": 1280, "height": height},
+                    timeout=timeout_ms,
+                )
+                meta.update(page=str(target), scale=SCALE)
+                results[url] = meta
             except PlaywrightError as error:
                 log(f"[screenshot] {url}: {str(error).splitlines()[0][:160]}")
             finally:

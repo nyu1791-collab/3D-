@@ -17,21 +17,20 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import collect, compose, screenshot, script, store, voicevox, x, youtube
+from . import collect, compose, screenshot, script, store, visuals, voicevox, x, youtube
 
 DEFAULTS = {
     "feeds": None,  # None → collect.DEFAULT_FEEDS
     "keywords": ["AI", "生成AI", "OpenAI", "Google", "Apple", "セキュリティ", "半導体"],
     "hacker_news": True,
-    "topics": 3,
-    "lines": 40,
+    "format": None,  # None → rotate by weekday (script.ROTATION); or roundup / deep / qa
+    "topics": None,  # None → the format's number of articles
     "voicevox_url": "http://127.0.0.1:50021",
     "speed": 1.12,
-    "width": 1920,
-    "height": 1080,
-    "caption_size": 15,
+    "caption_size": 16,
     "caption_outline": 3,
     "caption_y": -0.815,
+    "emphasis_color": "#FFE14D",
     "privacy": "public",
     "category": "28",  # 28 = 科学と技術
     "portraits": "assets/zunda",
@@ -41,6 +40,65 @@ DEFAULTS = {
     "timezone_offset_hours": 9,
 }
 CAPTION = {"zundamon": "#B8F5A0", "metan": "#FFC2DD"}
+CANVAS = (1920, 1080)
+
+
+def silence(path, seconds):
+    import wave
+
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(48000)
+        handle.writeframes(b"\x00\x00" * int(48000 * seconds))
+
+
+def _still(layers, seconds):
+    """Keep the previous visual on screen without animating it again."""
+    if not layers:
+        return []
+    last = dict(layers[-1])
+    if last.get("motion") == "pan":
+        return []  # a scrolled page has no single resting frame; the base shows instead
+    if last.get("motion") in ("zoom", "focus"):
+        last["zoom"] = 1.08 if last["motion"] == "zoom" else 1.35
+        last["motion"] = "hold"  # stay zoomed where the previous line ended
+    else:
+        last["motion"] = "still"
+    last.update(start=0, end=seconds)
+    return [last]
+
+
+def layers_for(line, items, area, folder, name, seconds, previous):
+    """Moving layers for one spoken line (see visuals.py)."""
+    visual = line["visual"]
+    kind = visual["kind"]
+    item = items[line["source"]] if line["source"] >= 0 else None
+    meta = (item or {}).get("meta")
+    if kind == "keep":
+        return _still(previous, seconds)
+    if kind == "points":
+        return visuals.points_steps(visual.get("points", []), area, folder, name, seconds, visual.get("title", ""))
+    if kind == "chart":
+        return visuals.chart_steps(visual, area, folder, name, seconds) or _still(previous, seconds)
+    if kind == "quote" and item:
+        return visuals.quote_card(visual["quote"], item["source"], area, folder, name, seconds)
+    if kind == "table" and meta:
+        return visuals.table_steps(meta["tables"][visual["index"]]["rows"], area, folder, name, seconds,
+                                   visual.get("title", "")) or visuals.page_top(meta, area, folder, name, seconds)
+    if item and not meta:  # the page could not be captured: show its headline card instead
+        return visuals.page_top({"page": item["card"], "scale": 1}, area, folder, name, seconds)
+    if not item:
+        return _still(previous, seconds)
+    if kind == "scroll":
+        return visuals.page_scroll(meta, area, folder, name, seconds)
+    if kind == "heading" and meta.get("heading"):
+        return visuals.article_crop(meta, meta["heading"], area, folder, name, seconds)
+    if kind == "paragraph":
+        return visuals.article_crop(meta, meta["paragraphs"][visual["index"]]["box"], area, folder, name, seconds)
+    if kind == "image":
+        return visuals.article_crop(meta, meta["images"][visual["index"]], area, folder, name, seconds, highlight=False)
+    return visuals.page_top(meta, area, folder, name, seconds)
 
 
 def settings_for(cfg):
@@ -100,7 +158,13 @@ def describe(episode, items, z, chapter_lines=()):
     credits = [voicevox.SPEAKERS["zundamon"]["credit"], voicevox.SPEAKERS["metan"]["credit"]]
     if z.get("portrait_credit"):
         credits.append(z["portrait_credit"])
-    lines += ["", "クレジット: " + " / ".join(credits), "", " ".join(z["hashtags"])]
+    lines += [
+        "",
+        "クレジット: " + " / ".join(credits),
+        "※音声は VOICEVOX による合成音声です。解説と考察は番組の見方で、事実は各出典の記事をご確認ください。",
+        "",
+        " ".join(z["hashtags"]),
+    ]
     return "\n".join(lines)
 
 
@@ -123,69 +187,94 @@ def run(cfg, output, *, publish=True, force=False, env=os.environ, log=print, da
         log(f"[zunda] {day} の回は投稿済みです")
         return {"status": "already_published", "date": day}
 
-    items = pick(collect.gather(z["feeds"], z["keywords"], state["seen"], z["hacker_news"], log=log), z["topics"])
+    zone = timezone(timedelta(hours=z["timezone_offset_hours"]))
+    fmt = z["format"] or script.format_for(datetime.fromtimestamp(clock(), zone).weekday())
+    topics = z["topics"] or script.FORMATS[fmt]["topics"]
+    items = pick(collect.gather(z["feeds"], z["keywords"], state["seen"], z["hacker_news"], log=log), topics)
     if not items:
         log("[zunda] 新しい話題がありません。今日は投稿しません")
         return {"status": "no_topics", "date": day}
     for item in items:
         item["text"] = collect.article_text(item["url"])
+    # Screenshots first: the script may point at paragraphs, images and tables they found.
+    (output / "shots").mkdir(parents=True, exist_ok=True)
+    pages = screenshot.capture_many([i["url"] for i in items], output / "shots", log=log)
+    for index, item in enumerate(items):
+        item["meta"] = pages.get(item["url"])
+        item["card"] = str(screenshot.title_card(item["title"], item["source"], output / "shots" / f"card-{index:02d}.png"))
     (output / "topics.json").write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding="utf-8")
 
-    episode = script.write(items, cfg, z["lines"])
-    (output / "script.json").write_text(json.dumps(episode, ensure_ascii=False, indent=1), encoding="utf-8")
-
-    (output / "shots").mkdir(parents=True, exist_ok=True)
-    shots = screenshot.capture_many([i["url"] for i in items], output / "shots", log=log)
-    for index, item in enumerate(items):
-        if not shots.get(item["url"]):
-            shots[item["url"]] = screenshot.title_card(
-                item["title"], item["source"], output / "shots" / f"card-{index:02d}.png"
-            )
+    recent = [e.get("title", "") for e in state["episodes"]]
+    episode = script.write(items, cfg, fmt, recent, log)
+    (output / "script.json").write_text(json.dumps({"format": fmt, **episode}, ensure_ascii=False, indent=1), encoding="utf-8")
 
     assets = output / "assets"
-    if assets.exists():
-        shutil.rmtree(assets)
-    assets.mkdir()
+    layers_dir = output / "layers"
+    for folder in (assets, layers_dir):
+        if folder.exists():
+            shutil.rmtree(folder)
+        folder.mkdir()
     voicevox.wait_ready(z["voicevox_url"])
     portraits = Path(z["portraits"]) if z["portraits"] else None
-    frames, scenes = {}, []
-    current = items[0]
-    for number, line in enumerate(episode["lines"], 1):
-        if line["source"] >= 0:
-            current = items[line["source"]]
-        key = (current["url"], line["speaker"])
-        if key not in frames:
-            frames[key] = compose.frame(
-                output / f"frame-{len(frames):03d}.png",
-                title=episode["title"],
-                shot=shots[current["url"]],
-                source=collect.domain(current["url"]),
-                speaker=line["speaker"],
-                portraits=portraits,
-                size=(z["width"], z["height"]),
+    size = CANVAS  # the layout (panel, characters, caption band) is designed for 1080p
+    area = visuals.panel(size)
+    bases, scenes, timeline = {}, [], []
+    shown, previous_layers, number = set(), [], 0
+
+    def base(speaker, emotion, source):
+        key = (speaker, emotion, source)
+        if key not in bases:
+            bases[key] = compose.frame(
+                output / f"base-{len(bases):03d}.png", title=episode["title"], shot=None,
+                source=collect.domain(items[source]["url"]) if source >= 0 else None,
+                speaker=speaker, portraits=portraits, size=size, emotion=emotion,
             )
-        shutil.copyfile(frames[key], assets / f"scene-{number:03d}.png")
-        voicevox.synthesize(line["text"], line["speaker"], assets / f"scene-{number:03d}.wav", z["voicevox_url"], z["speed"])
-        scenes.append(
-            {"scene_number": number, "narration": line["text"], "camera_motion": "none", "caption_color": CAPTION[line["speaker"]]}
-        )
+        return bases[key]
+
+    for line in episode["lines"]:
+        source = line["source"]
+        if source >= 0 and source not in shown and len(items) > 1:
+            shown.add(source)
+            number += 1
+            card = visuals.chapter_card(len(shown), items[source]["title"], items[source]["source"], size,
+                                        layers_dir, f"chapter-{number:03d}")
+            shutil.copyfile(card, assets / f"scene-{number:03d}.png")
+            silence(assets / f"scene-{number:03d}.wav", 1.6)
+            scenes.append({"scene_number": number, "narration": "", "camera_motion": "none"})
+            timeline.append({"source": source, "seconds": 1.6})
+            previous_layers = []
+        elif source >= 0:
+            shown.add(source)
+        number += 1
+        wav = assets / f"scene-{number:03d}.wav"
+        voicevox.synthesize(script.spoken(line["text"]), line["speaker"], wav, z["voicevox_url"], z["speed"])
+        seconds = audio_seconds(wav)
+        layers = layers_for(line, items, area, layers_dir, f"scene-{number:03d}", seconds, previous_layers)
+        previous_layers = layers
+        shutil.copyfile(base(line["speaker"], line["emotion"], source), assets / f"scene-{number:03d}.png")
+        scenes.append({"scene_number": number, "narration": line["text"], "camera_motion": "none",
+                       "caption_color": CAPTION[line["speaker"]], "layers": layers})
+        timeline.append({"source": source, "seconds": seconds})
 
     plan = {"title": episode["title"], "show_hook": False, "scenes": scenes}
     render_settings = {
         **cfg,
-        "width": z["width"],
-        "height": z["height"],
+        "width": CANVAS[0],
+        "height": CANVAS[1],
         "caption_size": z["caption_size"],
         "caption_outline": z["caption_outline"],
         "caption_y": z["caption_y"],
+        "emphasis_color": z["emphasis_color"],
     }
     result = render(plan, assets, output / "video", render_settings)
     video = Path(result["video"])
+    first = items[0].get("meta") or {}
     thumb = compose.thumbnail(
-        output / "thumbnail-yt.jpg", text=episode["thumbnail_text"], shot=shots[items[0]["url"]], portraits=portraits
+        output / "thumbnail-yt.jpg", text=episode["thumbnail_text"], shot=first.get("page") or items[0]["card"],
+        portraits=portraits,
     )
-    durations = [audio_seconds(assets / f"scene-{n:03d}.wav") for n in range(1, len(episode["lines"]) + 1)]
-    description = describe(episode, items, z, chapters(episode["lines"], durations, items))
+    chapter_lines = chapters([{"source": t["source"]} for t in timeline], [t["seconds"] for t in timeline], items)
+    description = describe(episode, items, z, chapter_lines)
     (output / "description.txt").write_text(description, encoding="utf-8")
     record = {"date": day, "title": episode["title"], "urls": [i["url"] for i in items], "video": str(video)}
     if not publish:
