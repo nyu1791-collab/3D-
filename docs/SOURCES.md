@@ -26,3 +26,31 @@
 | [WyattBlue/auto-editor](https://github.com/WyattBlue/auto-editor) / [SYSTRAN/faster-whisper](https://github.com/SYSTRAN/faster-whisper) / [ClipsAI/clipsai](https://github.com/ClipsAI/clipsai) | 切り抜き・無音削除・認識・顔中心のリフレーム向け。図解画像と既知のナレーションを組む本アプリの必須依存にはしない |
 
 pyCapCutの公開案内では、生成したドラフトをWindows版CapCutで開き、完成動画はアプリから書き出します。ドラフトJSONが生成できたことと、最新版CapCut Proで全素材・全エフェクトを使えたことは区別します。
+
+## コピーしたコード
+
+`src/explainer/render.py` のBT.709変換とタグ付けのフィルタ文字列は、[MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) のコミット `90f7701` の `app/services/video.py` から取り、zoompanの前に変換するよう変更して使っています。
+
+```text
+MIT License
+
+Copyright (c) 2024 Harry
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

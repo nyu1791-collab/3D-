@@ -4,6 +4,11 @@ import subprocess
 import pysubs2
 from .builder import scene_timeline
 
+# Untagged RGB-to-YUV output uses BT.601, but players decode untagged HD as BT.709 and colours shift.
+# Convert before zoompan: converting after ass greys the subtitles. See docs/SOURCES.md.
+_BT709_CONVERT='out_color_matrix=bt709:out_range=tv'
+_BT709_TAGS='setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv'
+
 
 def _text(value):
     return str(value).replace('\\','＼').replace('{','（').replace('}','）').replace('\n',r'\N')
@@ -85,7 +90,7 @@ def render(plan,assets,output,settings):
         elif motion=='pan_down':
             zoom='1.12'
             y=f'(ih-ih/zoom)*on/{frames}'
-        vf=f"scale={width*2}:{height*2}:force_original_aspect_ratio=increase,crop={width*2}:{height*2},zoompan=z='{zoom}':x='iw/2-iw/zoom/2':y='{y}':d={frames}:s={width}x{height}:fps={fps},ass={name}.ass,format=yuv420p"
+        vf=f"scale={width*2}:{height*2}:force_original_aspect_ratio=increase:{_BT709_CONVERT},crop={width*2}:{height*2},format=yuv420p,zoompan=z='{zoom}':x='iw/2-iw/zoom/2':y='{y}':d={frames}:s={width}x{height}:fps={fps},ass={name}.ass,format=yuv420p,{_BT709_TAGS}"
         clip=folder/(name+'.mp4')
         if not clip.is_file():
             with (folder/'render.log').open('ab') as log:
